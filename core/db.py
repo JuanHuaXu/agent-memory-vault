@@ -39,14 +39,22 @@ def insert_l0_record(record):
     conn = get_db_connection()
     try:
         with conn.cursor() as cur:
+            # Determine scope_type
+            cur.execute("SELECT scope_type FROM scopes WHERE scope_id = %s", (record.scope_id,))
+            row = cur.fetchone()
+            scope_type = row[0] if row else 'workspace'
+            
+            # Extract source from provenance
+            source = record.provenance.source if record.provenance else 'unknown'
+            
             # 1. Insert Ingest record
             cur.execute("""
                 INSERT INTO records_l0 (
-                    record_id, scope_id, record_type, path, start_line, end_line, 
+                    record_id, scope_type, scope_id, record_type, source, path, start_line, end_line, 
                     payload, confidence_hint, provenance
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, (
-                record.record_id, record.scope_id, record.record_type, record.path, 
+                record.record_id, scope_type, record.scope_id, record.record_type, source, record.path, 
                 record.start_line, record.end_line, Json(sanitized_payload), 
                 record.confidence, Json(record.provenance.__dict__)
             ))

@@ -20,7 +20,7 @@ def consolidate_l3():
         with conn.cursor() as cur:
             # 1. Fetch pending L0 events
             cur.execute("""
-                SELECT e.event_id, r.record_id, r.scope_id, r.record_type, r.payload, r.path
+                SELECT e.event_id, r.record_id, r.scope_id, r.record_type, r.payload, r.path, r.source, r.scope_type, r.branch
                 FROM event_log e
                 JOIN records_l0 r ON e.record_id = r.record_id
                 WHERE e.processed_at IS NULL
@@ -35,7 +35,7 @@ def consolidate_l3():
 
             print(f"Found {len(events)} pending events. Dream processing...")
 
-            for eid, rid, sid, rtype, payload, path in events:
+            for eid, rid, sid, rtype, payload, path, source, scope_type, branch in events:
                 # 2. Extract Text Snippet for L3
                 # For code, it's the raw content; for wishes/decisions, it's the JSON summary.
                 snippet_text = ""
@@ -50,7 +50,14 @@ def consolidate_l3():
                 embedding = encoder.encode(snippet_text).tolist()
 
                 # 4. Insert into L3 Index
-                metadata = {"path": path, "type": rtype, "source": "conversation"}
+                metadata = {
+                    "path": path, 
+                    "artifact_type": rtype, 
+                    "source": source,
+                    "scope_type": scope_type,
+                    "branch": branch,
+                    "repo_id": "agent-memory-vault"
+                }
                 vs.add_snippet(rid, sid, snippet_text, json.dumps(metadata), embedding)
                 
                 # 5. Mark Event as Processed (Atomic promotion)

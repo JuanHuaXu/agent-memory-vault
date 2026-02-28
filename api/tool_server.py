@@ -39,6 +39,7 @@ class QueryRequest(BaseModel):
     token_budget: Optional[int] = 4000
 
 class HotSymbolUpdate(BaseModel):
+    scope_id: str
     symbols: Dict[str, str]
 
 # Global Context Compiler instance
@@ -88,8 +89,10 @@ async def update_hot_symbols(req: HotSymbolUpdate):
     This informs the immediate session focus in future context windows.
     """
     try:
-        compiler.redis.hset("hot_symbols:session_current", mapping=req.symbols)
-        return {"status": "updated", "symbols_set": list(req.symbols.keys())}
+        # We only update the delta overlay here. Base snapshot is for compactions.
+        delta_key = f"hot_symbols:{req.scope_id}:delta"
+        compiler.redis.hset(delta_key, mapping=req.symbols)
+        return {"status": "updated", "symbols_set": list(req.symbols.keys()), "scope_id": req.scope_id}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

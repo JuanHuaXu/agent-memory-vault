@@ -72,8 +72,10 @@ def setup_postgres():
     
     CREATE TABLE IF NOT EXISTS records_l0 (
         record_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+        scope_type VARCHAR(20) CHECK (scope_type IN ('private', 'workspace', 'public')),
         scope_id UUID REFERENCES scopes(scope_id),
         record_type VARCHAR(50) NOT NULL,
+        source VARCHAR(100),
         branch VARCHAR(100),
         path TEXT,
         start_line INT,
@@ -116,6 +118,8 @@ def setup_postgres():
     );
     
     CREATE INDEX IF NOT EXISTS idx_records_scope_path ON records_l0(scope_id, path);
+    CREATE INDEX IF NOT EXISTS idx_records_scope_type ON records_l0(scope_type);
+    CREATE INDEX IF NOT EXISTS idx_records_source ON records_l0(source);
     CREATE INDEX IF NOT EXISTS idx_l2_scope_lod ON l2_digests(scope_id, lod_level);
     """
     
