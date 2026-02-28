@@ -16,5 +16,5 @@ echo "Checking Postgres (L3)..."
 source venv/bin/activate && python3 scripts/test_db_conn.py || (echo "Postgres unreachable. Check pg_hba.conf trust settings.")
 
 # Step 2: Start the FastAPI Tool Server
-echo "Starting FastAPI gateway on port 8000..."
-./venv/bin/uvicorn api.tool_server:app --host 127.0.0.1 --port 8000 --reload
+echo "Starting FastAPI gateway (auto-detecting free port in 8000-8080 range)..."
+python3 api/tool_server.py
