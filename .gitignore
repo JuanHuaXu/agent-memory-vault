@@ -1,0 +1,57 @@
+# --- SYSTEM / OS ---
+.DS_Store
+Thumbs.db
+
+# --- PYTHON ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# --- SECRETS & KEYS ---
+.keystore.*
+id_*
+*.pem
+*.key
+*.pub
+*.crt
+
+# --- ENVIRONMENT & CONFIG ---
+.env
+.export
+.secrets
+secrets.sh
+
+# --- LOGS & TEMPORARY ---
+*.log
+nohup.out
+.pytest_cache/
+.coverage
+htmlcov/
+*.swp
+*.bak
+dump.rdb
+
+# --- POSTGRES LOCAL ---
+.s.PGSQL.*
+postgresql-*.log

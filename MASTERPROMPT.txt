@@ -1,0 +1,201 @@
+You are a senior staff engineer + architect building a production-grade multiscale (“LoD”) memory system for agentic coding and large software projects. This is NOT “chat history storage.” It is a context rendering engine that supports safe agentic coding (up to rung 4), continuous micro-dream consolidation, falsification-aware trust, and strict grounding to authoritative sources.
+
+GOALS (non-negotiable)
+1) Fast: memory retrieval + context rendering must usually be <200ms p95 (excluding LLM inference and test execution). Never 10s.
+2) Grounded: all “authoritative” memory must trace back to L0 sources with IDs and provenance. No hallucinated authority.
+3) LoD Zoom: system can zoom out (summaries/symbols) and zoom in (exact snippets/contracts/tests) deterministically.
+4) Safe continuous learning: “dream anytime” must be incremental, bounded, and cannot poison authority.
+5) Multi-tenant scopes: private(user), workspace, public. Workspace facts are shared only within that workspace; public facts shared across all. Private never leaks.
+6) Agent safety: context compiler must emit guardrails (budgets, forbidden paths, required tests) so an agent doesn’t cook the code.
+
+TECH STACK (choose and justify)
+- Postgres for L0 truth + event log + snapshots (JSONB).
+- Redis for hot symbols + overlays + version pointers.
+- Vector index for semantic retrieval: choose ONE:
+  A) Postgres + pgvector (simpler ops) OR
+  B) Qdrant (recommended for large corpora; separate service)
+Explain choice and provide scaling plan if later migrating.
+
+HIGH-LEVEL CONCEPTS
+A) L0 Authoritative memory (on disk, Postgres):
+   - Immutable-ish records: code pointers (repo/commit/path/ranges), docs, ADRs, tickets, incident notes, decisions, user corrections.
+   - Stored as atomic “Memory Records” (not one giant doc).
+   - Each record has: record_id, scope_type, scope_id, record_type, created_at, provenance, and JSON payload.
+B) L1 Structure extraction:
+   - Symbols, graphs, and metadata derived from L0 (call graph edges, API routes, type definitions, config keys, ownership, “do-not-touch” zones).
+C) L2 Digests:
+   - Strictly bounded summaries at multiple granularities: chunk digest, file digest, module digest, subsystem digest.
+D) L3 Retrieval index:
+   - Embeddings + metadata filters; used only to select candidates (routing), not as truth storage.
+E) Trust sieve:
+   - Each claim/decision can carry Confidence and Falsification markers with State derived from them.
+   - Must support “falsified but useful” storage and “false consensus” metrics.
+F) Dream-anytime:
+   - Incremental consolidation pipeline that consumes an event log and emits small deltas + occasional compactions.
+   - Must be safe: cache is untrusted; promotion requires gating.
+
+DELIVERABLES
+You must produce:
+1) System architecture doc (components, flows, failure modes).
+2) Concrete data model (Postgres tables, Redis keys, vector collections; include schemas).
+3) Context Compiler spec: inputs/outputs, token budgeting rules, LoD policies, required evidence, guardrails.
+4) Dream pipeline spec: event types, worker steps, idempotency, versioning, overlay strategy, compaction strategy.
+5) API spec (HTTP or gRPC) for:
+   - ingest L0 records
+   - record user correction / refutation
+   - retrieve/compile context for a query
+   - run dream step (sync trigger) and background worker interface
+   - admin: workspace/user management + ACL checks
+6) Performance plan + benchmarks (target p95, caching strategy, index settings).
+7) Test plan: unit/integration/e2e + chaos tests (partial updates, crashes mid-dream, stale redis, vector lag).
+8) Minimal reference implementation skeleton (folders/modules, core classes, no “toy” omissions).
+
+CORE REQUIREMENTS (detailed)
+
+I. SCOPES + ACL
+- scope_type ∈ {private, workspace, public}
+- A query executes with an “effective scope set”:
+  - private(user) + workspace(current) + public
+- Precedence: private overrides workspace overrides public for conflicts.
+- Absolutely forbid cross-scope leakage: retrieval must hard-filter by scope before ranking.
+
+II. MEMORY RECORDS (L0) - JSON format
+Use an envelope + payload model.
+Envelope columns (indexed): record_id, scope_type, scope_id, record_type, created_at, source, supersedes, confidence_hint.
+Payload JSON should support your earlier structure:
+{
+  "Axioms": [...],
+  "Claims": [...],
+  "Proof": {...},
+  "Confidence": {...},
+  "Falsifiability": {...},
+  "State": {...},
+  "Pointers": {...},          // e.g., repo/commit/path/line ranges or doc anchors
+  "Provenance": {...}         // who/what produced it, tool run, test results
+}
+State MUST be derived from evidence by policy, not manually set, except for explicit user directives.
+
+III. SYMBOLS (Redis, hot working set)
+- Symbols are compact key/value atoms representing invariants and stable constraints.
+- Redis must store:
+  - base snapshot symbols (rarely changed; versioned)
+  - delta overlays (frequent dream updates)
+  - version pointer(s): memory_version per scope
+- Use overlay strategy:
+  - base_gen snapshot + delta overlays since base
+  - runtime merges base + overlay with precedence rules
+- Keep symbols bounded per scope (policy-driven), e.g., prioritize invariants, ownership, contracts, “do-not-touch”.
+
+IV. DIGESTS (LoD pyramids)
+- Maintain hierarchy:
+  chunk_digest -> file_digest -> module_digest -> subsystem_digest
+- Update incrementally: a changed chunk updates only its ancestors.
+- Digests must be strictly token-bounded; provide max lengths per LoD level and enforcement.
+
+V. VECTOR INDEX (routing)
+- Index BOTH chunk texts and digests (separate namespaces or metadata flags).
+- Every vector entry must include metadata filters:
+  - scope_type, scope_id, repo_id, branch/commit, path, language, artifact_type (code/doc/test/adr), owner tag.
+- Retrieval is two-pass:
+  Pass A: digests topK (broad)
+  Pass B: authoritative snippets topK (precise)
+- Always return IDs + why (score + metadata) for traceability.
+
+VI. CONTEXT COMPILER (“render pass”)
+Input: query q + user/workspace context + budgets + task type hints.
+Output: a “Context Artifact” containing:
+  A) Symbol header (constraints, ownership, forbidden zones, active invariants)
+  B) Key digests (module/subsystem relevant summaries)
+  C) Authoritative snippets (interfaces/types/tests/contracts), minimal and cited
+  D) Action guardrails:
+     - max files, max LOC, forbidden paths, required tests, required evidence
+  E) Trace section: list of memory record IDs and chunk IDs used
+The compiler must:
+- Fit in a token budget cap.
+- Prefer minimal authoritative snippets over large dumps.
+- Enforce that any proposed code change must cite at least one authoritative anchor (interface/test/adr) when available.
+
+VII. TRUST SIEVE + FALSE CONSENSUS
+- Track: support evidence, falsification evidence, provenance quality, recency, and scope.
+- Provide a claim score function with both positive and negative evidence.
+- Expose “false consensus index” (high belief/usage but high falsification/contradiction).
+- Keep refuted data as inactive but queryable (for humor/analysis and debiasing).
+
+VIII. DREAM-ANYTIME (incremental consolidation)
+Implement as event sourcing:
+- Append-only event log is canonical.
+- Dream worker consumes events and produces:
+  - symbol deltas
+  - digest updates
+  - vector updates (only when text changed)
+  - trust metric updates
+Requirements:
+- Idempotent processing (safe on retries).
+- Versioned outputs (memory_version).
+- Never promote cache content to authority without validation:
+  - validation gates based on source type and evidence thresholds
+  - suspicious large deltas are quarantined for review
+- Compaction:
+  - occasional “AXFR-like” rebuild: generate a new base snapshot and reset overlays.
+
+IX. PERFORMANCE + CACHING
+- Target: retrieval+render <200ms p95 for typical queries.
+- Use:
+  - metadata pre-filtering/sharding before ANN
+  - cached “active subsystem” digests
+  - query-result caching (short TTL) for follow-up turns
+  - pipelined Redis operations
+- Define p50/p95/p99 goals and instrumentation.
+
+X. CORRECTNESS GUARANTEES
+- Every returned “authoritative snippet” must map to an L0 pointer.
+- Every compiled context must list the IDs used.
+- The system must be rebuildable: ability to regenerate symbols/digests from L0+events.
+- Provide rollback strategy: revert to prior base_gen and overlays if a dream update is bad.
+
+IMPLEMENTATION PLAN (must deliver)
+Phase 1: Foundations
+- Postgres schema + event log
+- Redis symbol store (base + overlay + version)
+- Minimal vector indexing and query
+- Context Compiler v1 (symbols + digest retrieval + snippet retrieval)
+
+Phase 2: Dream-anytime
+- Event types + worker
+- Incremental digests
+- Overlay updates + versioning + idempotency
+- Compaction routine
+
+Phase 3: Trust sieve
+- Confidence/falsification scoring
+- State derivation rules
+- False consensus index
+- Quarantine rules for suspicious promotions
+
+Phase 4: Agent guardrails integration
+- Output guardrail contract for agents
+- Evidence requirement enforcement
+- “Do not touch” and budget enforcement
+- Integration test with a dummy agent loop (propose patch -> run tests -> evaluate)
+
+ACCEPTANCE TESTS (must pass)
+1) Scope isolation: private facts never appear in workspace/public queries (including via vector index).
+2) Grounding: context artifacts always include IDs + pointers for any authoritative claim/snippet.
+3) Latency: typical compile-context request meets p95 <200ms with 1M vectors (or your projected scale), excluding LLM.
+4) Dream idempotency: replay events yields identical symbol/digest state.
+5) Poison resistance: inject contradictory cache events; system quarantines or keeps low-trust and does not flip authoritative invariants abruptly.
+6) Incremental updates: changing one file updates only affected digests and vectors.
+7) Rollback: can revert to previous base snapshot and overlays cleanly.
+
+OUTPUT FORMAT
+Deliver the full package as:
+- Architecture doc
+- Schemas
+- APIs
+- Data structures (Redis keys, vector collections)
+- Pseudocode for core flows
+- Test plan + benchmark plan
+- Implementation skeleton layout
+
+Do not hand-wave. Make concrete choices. Call out tradeoffs and failure modes. If you propose optional components, provide defaults and “when to upgrade” triggers.
+
